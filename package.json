@@ -2,6 +2,7 @@
   "name": "tiktok-bot",
   "version": "1.0.0",
   "main": "bot.js",
+  "type": "module",
   "dependencies": {
     "puppeteer-extra": "^3.3.4",
     "puppeteer-extra-plugin-stealth": "^2.11.1",
