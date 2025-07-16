@@ -1,0 +1,11 @@
+{
+  "name": "tiktok-bot",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "dependencies": {
+    "puppeteer-extra": "^3.3.4",
+    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "proxy-chain": "^2.6.1",
+    "axios": "^1.6.7"
+  }
+}
