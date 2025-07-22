@@ -190,9 +190,13 @@ class UserAgentManager {
 
     getDefaultUserAgents() {
         return [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36'
+            // Mobile agents
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
+            // Desktop agents
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/112.0'
         ];
     }
 
@@ -213,12 +217,12 @@ class VideoManager {
         console.log('🔍 Fetching TikTok videos...');
         try {
             const response = await axios.get(
-                'https://raw.githubusercontent.com/virkx3/otp/main/tiktok.txt', // Changed to TikTok source
+                'https://raw.githubusercontent.com/virkx3/otp/main/tiktok.txt',
                 { timeout: 10000 }
             );
             this.videos = response.data.split('\n')
                 .map(v => v.trim())
-                .filter(v => v.length > 0);
+                .filter(v => v.length > 0 && v.startsWith('https://www.tiktok.com/'));
             
             if (this.videos.length === 0) {
                 this.videos = this.getDefaultVideos();
@@ -231,8 +235,8 @@ class VideoManager {
 
     getDefaultVideos() {
         return [
-            'https://www.tiktok.com/@example_user/video/1234567890123456789',
-            'https://www.tiktok.com/@another_user/video/9876543210987654321'
+            'https://www.tiktok.com/@tiktok/video/7106681361892453637',
+            'https://www.tiktok.com/@tiktok/video/7107040005863484677'
         ];
     }
 
@@ -242,7 +246,55 @@ class VideoManager {
 }
 
 class GitHubUploader {
-    // ... (unchanged from original code) ...
+    constructor() {
+        if (!GITHUB_TOKEN || !GITHUB_REPO) {
+            console.warn('⚠️ GitHub credentials missing. Screenshots will be saved locally only.');
+            this.enabled = false;
+            return;
+        }
+        
+        this.enabled = true;
+        [this.repoOwner, this.repoName] = GITHUB_REPO.split('/');
+        if (!this.repoOwner || !this.repoName) {
+            console.warn('⚠️ Invalid GITHUB_REPO format. Should be "owner/repo"');
+            this.enabled = false;
+        }
+    }
+
+    async uploadScreenshot(filePath, sessionId) {
+        if (!this.enabled) {
+            console.log('   ⚠️ GitHub uploader disabled');
+            return null;
+        }
+        
+        try {
+            const fileName = `screenshot-${sessionId}-${Date.now()}.png`;
+            const fileContent = fs.readFileSync(filePath);
+            const contentBase64 = fileContent.toString('base64');
+            
+            const response = await axios.put(
+                `https://api.github.com/repos/${this.repoOwner}/${this.repoName}/contents/screenshots/${fileName}`,
+                {
+                    message: `Add screenshot for session ${sessionId}`,
+                    content: contentBase64,
+                    branch: GITHUB_BRANCH
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'User-Agent': 'TikTok Viewer'
+                    }
+                }
+            );
+            
+            console.log(`   📸 Screenshot uploaded to GitHub: ${response.data.content.html_url}`);
+            return response.data.content.html_url;
+        } catch (error) {
+            console.error('   ⚠️ Failed to upload screenshot to GitHub:', error.message);
+            return null;
+        }
+    }
 }
 
 class SessionRunner {
@@ -263,7 +315,7 @@ class SessionRunner {
     async runSession(sessionId) {
         const proxy = this.proxyManager.getRandomProxy();
         const userAgent = this.userAgentManager.getRandomUserAgent();
-        const video = this.videoManager.getRandomVideo();
+        let video = this.videoManager.getRandomVideo();
 
         console.log(`\n🚀 Starting session #${sessionId}`);
         console.log(`   Proxy: ${proxy || 'DIRECT CONNECTION'}`);
@@ -311,6 +363,7 @@ class SessionRunner {
         });
 
         const page = await browser.newPage();
+        let pageClosed = false;
         
         try {
             await this.ensureScreenshotDir();
@@ -347,10 +400,29 @@ class SessionRunner {
             });
 
             console.log(`   🌐 Navigating to video...`);
-            await page.goto(video, {
-                waitUntil: 'networkidle2',
-                timeout: 90000
-            });
+            try {
+                // Convert vm.tiktok.com links to permanent format
+                if (video.includes('vm.tiktok.com')) {
+                    const response = await axios.head(video, { 
+                        timeout: 10000,
+                        maxRedirects: 0,
+                        validateStatus: status => status >= 300 && status < 400
+                    });
+                    
+                    if (response.headers.location) {
+                        video = response.headers.location;
+                        console.log(`   🔄 Converted to permanent URL: ${video}`);
+                    }
+                }
+
+                await page.goto(video, {
+                    waitUntil: 'domcontentloaded',
+                    timeout: 60000
+                });
+            } catch (navError) {
+                console.error(`   🚫 Navigation error: ${navError.message}`);
+                throw new Error('Navigation failed');
+            }
 
             await this.handleTikTokDialogs(page);
 
@@ -360,7 +432,7 @@ class SessionRunner {
             
             try {
                 // TikTok video player detection
-                await page.waitForSelector('video', { timeout: 30000 });
+                await page.waitForSelector('video', { timeout: 10000 });
                 playerFound = true;
                 console.log('   ✅ Found video element');
             } catch (err) {
@@ -369,36 +441,30 @@ class SessionRunner {
             
             if (!playerFound) {
                 try {
-                    await page.waitForFunction(() => {
-                        return document.querySelector('video') || 
-                               document.querySelector('.tiktok-video') ||
-                               document.querySelector('[data-e2e="video-player"]');
-                    }, { timeout: 30000 });
-                    playerFound = true;
-                    console.log('   ✅ Video player detected via JavaScript');
+                    playerFound = await page.evaluate(() => {
+                        return !!document.querySelector('video') || 
+                               !!document.querySelector('.tiktok-video-player') ||
+                               !!document.querySelector('[data-e2e="video-player"]');
+                    });
+                    
+                    if (playerFound) {
+                        console.log('   ✅ Video player detected via JavaScript');
+                    } else {
+                        console.log('   ❌ Video player not found via JavaScript');
+                    }
                 } catch (err) {
                     console.log('   ⚠️ Could not detect video player with JavaScript');
                 }
             }
             
             if (!playerFound) {
-                const screenshotPath = path.join(this.screenshotDir, `error-${sessionId}.png`);
-                await page.screenshot({ path: screenshotPath });
-                console.log(`   📸 Saved screenshot to ${screenshotPath}`);
-                
-                // Upload to GitHub
-                await this.githubUploader.uploadScreenshot(screenshotPath, sessionId);
-                
-                // Check for TikTok errors
                 const errorText = await page.evaluate(() => {
-                    return document.querySelector('.error-message')?.textContent.trim() || '';
+                    return document.querySelector('.error-message')?.textContent.trim() || 
+                           document.querySelector('.tiktok-error')?.textContent.trim() || 
+                           document.querySelector('body')?.innerText?.slice(0, 200) || 'Unknown error';
                 });
                 
-                if (errorText) {
-                    throw new Error(`TikTok error: ${errorText}`);
-                }
-                
-                throw new Error('Video player not found after all detection methods');
+                throw new Error(`Video player not found. Page content: ${errorText}`);
             }
 
             // Simulate TikTok viewing behavior
@@ -421,19 +487,35 @@ class SessionRunner {
             
             // Save screenshot on error
             try {
-                const screenshotPath = path.join(this.screenshotDir, `error-${sessionId}.png`);
-                await page.screenshot({ path: screenshotPath });
-                console.log(`   📸 Saved error screenshot to ${screenshotPath}`);
-                
-                // Upload to GitHub
-                await this.githubUploader.uploadScreenshot(screenshotPath, sessionId);
+                if (!pageClosed && !page.isClosed()) {
+                    const screenshotPath = path.join(this.screenshotDir, `error-${sessionId}.png`);
+                    await page.screenshot({ path: screenshotPath });
+                    console.log(`   📸 Saved error screenshot to ${screenshotPath}`);
+                    
+                    // Upload to GitHub
+                    if (this.githubUploader && typeof this.githubUploader.uploadScreenshot === 'function') {
+                        await this.githubUploader.uploadScreenshot(screenshotPath, sessionId);
+                    } else {
+                        console.log('   ⚠️ GitHub uploader not available');
+                    }
+                } else {
+                    console.log('   ⚠️ Page closed, cannot take screenshot');
+                }
             } catch (screenshotError) {
                 console.error('   ⚠️ Failed to save screenshot:', screenshotError.message);
             }
             
             return false;
         } finally {
-            await browser.close();
+            try {
+                if (!pageClosed) {
+                    await page.close().catch(() => {});
+                }
+                await browser.close();
+            } catch (browserError) {
+                console.error('   ⚠️ Browser close error:', browserError.message);
+            }
+            pageClosed = true;
         }
     }
 
@@ -449,10 +531,13 @@ class SessionRunner {
             // Handle GDPR consent
             await page.waitForSelector('.tiktok-gdpr-btn', { timeout: 3000 });
             await page.evaluate(() => {
-                document.querySelectorAll('.tiktok-gdpr-btn')
-                    .forEach(btn => {
-                        if (btn.textContent.includes('Accept')) btn.click();
-                    });
+                const buttons = document.querySelectorAll('.tiktok-gdpr-btn');
+                for (const btn of buttons) {
+                    if (btn.textContent.includes('Accept')) {
+                        btn.click();
+                        return;
+                    }
+                }
             });
             console.log('   ✅ Accepted GDPR consent');
         } catch {}
@@ -531,21 +616,39 @@ class SessionRunner {
         // Run sessions continuously
         let sessionCount = 0;
         let successCount = 0;
-        const MAX_SESSIONS = 50;
+        const MAX_SESSIONS = process.env.MAX_SESSIONS || 50;
         
         while (sessionCount < MAX_SESSIONS) {
             sessionCount++;
-            const success = await new SessionRunner(
-                proxyManager,
-                userAgentManager,
-                videoManager,
-                githubUploader
-            ).runSession(sessionCount);
+            let attempts = 0;
+            let success = false;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts && !success) {
+                attempts++;
+                success = await new SessionRunner(
+                    proxyManager,
+                    userAgentManager,
+                    videoManager,
+                    githubUploader
+                ).runSession(sessionCount);
+                
+                if (!success) {
+                    console.log(`   🔁 Retry attempt ${attempts}/${maxAttempts} for session #${sessionCount}`);
+                    // Rotate proxy on failure
+                    if (proxyManager.workingProxies.length > 1) {
+                        proxyManager.workingProxies.shift(); // Remove failed proxy
+                        console.log(`   🗑️ Removed top proxy from rotation`);
+                    }
+                }
+            }
             
             if (success) successCount++;
             
-            // Random delay between sessions (1-3 minutes)
-            const delay = 60000 + Math.floor(Math.random() * 120000);
+            // Random delay between sessions
+            const minDelay = parseInt(process.env.SESSION_DELAY_MIN || 60000);
+            const maxDelay = parseInt(process.env.SESSION_DELAY_MAX || 180000);
+            const delay = minDelay + Math.floor(Math.random() * (maxDelay - minDelay));
             console.log(`⏳ Next session in ${Math.round(delay/60000)} minutes...`);
             await setTimeout(delay);
         }
