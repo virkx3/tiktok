@@ -1,5 +1,4 @@
-# Create package.json
-echo '{
+{
   "name": "tiktok-view-bot",
   "version": "1.0.0",
   "main": "bot.js",
@@ -10,10 +9,4 @@ echo '{
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
-}' > package.json
-
-# Build Docker image
-docker build -t tiktok-bot .
-
-# Run container
-docker run -e GITHUB_TOKEN=your_token -e GITHUB_REPO=your/repo tiktok-bot
+}
