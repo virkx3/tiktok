@@ -42,8 +42,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Puppeteer config
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Create app directory
 WORKDIR /usr/src/app
