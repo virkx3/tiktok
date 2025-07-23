@@ -356,11 +356,18 @@ class SessionRunner {
             browserArgs.push(`--proxy-server=http://${proxy}`);
         }
 
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: browserArgs,
-            ignoreHTTPSErrors: true
-        });
+        let browser;
+        try {
+            browser = await puppeteer.launch({
+                headless: "new",
+                args: browserArgs,
+                ignoreHTTPSErrors: true,
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null
+            });
+        } catch (launchError) {
+            console.error(`   ⚠️ Browser launch failed: ${launchError.message}`);
+            return false;
+        }
 
         const page = await browser.newPage();
         let pageClosed = false;
@@ -530,132 +537,4 @@ class SessionRunner {
         try {
             // Handle GDPR consent
             await page.waitForSelector('.tiktok-gdpr-btn', { timeout: 3000 });
-            await page.evaluate(() => {
-                const buttons = document.querySelectorAll('.tiktok-gdpr-btn');
-                for (const btn of buttons) {
-                    if (btn.textContent.includes('Accept')) {
-                        btn.click();
-                        return;
-                    }
-                }
-            });
-            console.log('   ✅ Accepted GDPR consent');
-        } catch {}
-    }
-
-    async simulateTikTokBehavior(page) {
-        try {
-            // Random scrolling behavior
-            if (Math.random() > 0.7) {
-                const scrollAmount = Math.floor(Math.random() * 300) + 100;
-                await page.mouse.wheel({ deltaY: scrollAmount });
-                console.log('   🖱️ Scrolled feed');
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-
-            // Random interactions
-            if (Math.random() > 0.8) {
-                // Like action
-                await page.waitForSelector('[data-e2e="like-icon"]', { timeout: 3000 });
-                await page.click('[data-e2e="like-icon"]');
-                console.log('   ❤️ Liked video');
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-
-            if (Math.random() > 0.9) {
-                // Follow action
-                await page.waitForSelector('[data-e2e="follow-button"]', { timeout: 3000 });
-                await page.click('[data-e2e="follow-button"]');
-                console.log('   ➕ Followed creator');
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-
-            // Random swipe gesture (mobile simulation)
-            if (page.viewport().isMobile && Math.random() > 0.6) {
-                const height = page.viewport().height;
-                await page.touchscreen.tap(200, height * 0.8);
-                await page.touchscreen.swipe(200, height * 0.8, 200, height * 0.2);
-                console.log('   👆 Simulated swipe');
-                await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-
-            // Random pause/play
-            if (Math.random() > 0.75) {
-                await page.keyboard.press('Space');
-                console.log('   ⏯️ Toggled play/pause');
-                await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 4000));
-                await page.keyboard.press('Space');
-            }
-            
-        } catch (error) {
-            console.log('   ⚠️ Behavior simulation error:', error.message);
-        }
-    }
-}
-
-// Main execution
-(async () => {
-    try {
-        const proxyManager = new ProxyManager();
-        const userAgentManager = new UserAgentManager();
-        const videoManager = new VideoManager();
-        const githubUploader = new GitHubUploader();
-        
-        // Initialize all managers
-        await proxyManager.initialize();
-        await userAgentManager.initialize();
-        await videoManager.initialize();
-
-        // Find working proxies
-        await proxyManager.findWorkingProxies();
-        
-        if (proxyManager.workingProxies.length === 0) {
-            console.warn('⚠️ No working proxies found. Using direct connection');
-        }
-
-        // Run sessions continuously
-        let sessionCount = 0;
-        let successCount = 0;
-        const MAX_SESSIONS = process.env.MAX_SESSIONS || 50;
-        
-        while (sessionCount < MAX_SESSIONS) {
-            sessionCount++;
-            let attempts = 0;
-            let success = false;
-            const maxAttempts = 3;
-            
-            while (attempts < maxAttempts && !success) {
-                attempts++;
-                success = await new SessionRunner(
-                    proxyManager,
-                    userAgentManager,
-                    videoManager,
-                    githubUploader
-                ).runSession(sessionCount);
-                
-                if (!success) {
-                    console.log(`   🔁 Retry attempt ${attempts}/${maxAttempts} for session #${sessionCount}`);
-                    // Rotate proxy on failure
-                    if (proxyManager.workingProxies.length > 1) {
-                        proxyManager.workingProxies.shift(); // Remove failed proxy
-                        console.log(`   🗑️ Removed top proxy from rotation`);
-                    }
-                }
-            }
-            
-            if (success) successCount++;
-            
-            // Random delay between sessions
-            const minDelay = parseInt(process.env.SESSION_DELAY_MIN || 60000);
-            const maxDelay = parseInt(process.env.SESSION_DELAY_MAX || 180000);
-            const delay = minDelay + Math.floor(Math.random() * (maxDelay - minDelay));
-            console.log(`⏳ Next session in ${Math.round(delay/60000)} minutes...`);
-            await setTimeout(delay);
-        }
-        
-        console.log(`\n🎉 Finished ${sessionCount} sessions (${successCount} successful)`);
-    } catch (error) {
-        console.error('Fatal error:', error);
-        process.exit(1);
-    }
-})();
+            await page.evaluate(() 
