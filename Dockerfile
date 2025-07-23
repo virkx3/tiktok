@@ -1,6 +1,6 @@
 FROM node:18-bullseye
 
-# Install dependencies
+# Install system dependencies + Chromium
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -38,10 +38,11 @@ RUN apt-get update && \
     libxtst6 \
     wget \
     xdg-utils \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Puppeteer config
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create app directory
